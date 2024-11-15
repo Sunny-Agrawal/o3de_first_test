@@ -1,0 +1,326 @@
+[repo]
+name = "usd-exchange-sdk"
+logging = "warning"
+folders.version_file = "CHANGELOG.md"
+extra_tool_paths."++" = [
+    "$root/tools/repoman",
+]
+
+# keep in-sync with the tokens below
+default_flavor = "usd_24.08_py_3.10"
+
+[repo.tokens]
+usd_flavor = "usd"
+usd_ver = "24.08"
+python_ver = "3.10"
+abi = "2.35"
+
+[repo_version_header]
+enabled = true
+company = "NVIDIA"
+product = "OpenUSD Exchange SDK"
+macro_namespace = "USDEX"
+target_version_header_file = "include/usdex/core/Version.h"
+target_resource_file = "version.rc"
+generate_version_stub_file = true
+
+[repo_feature_header]
+enabled = true
+target_file = "include/usdex/core/Feature.h"
+
+[repo_build_number]
+enabled = true
+
+[repo_build]
+fetch.packman_target_files_to_pull = [
+    "$root/deps/target-deps.packman.xml"
+]
+
+# enable only for internal use
+# if enabled, requires a `docker.image_url` matching the `repo.tokens.abi` glibc version
+docker.enabled = false
+premake."token:abi==2.35".linux_x86_64_cxx_abi = true
+
+clean.folders."++" = ["$root/_conan", "$root/_deps"]
+
+# enable only for internal use
+licensing.enabled = false
+licensing.fail_on_missing = true
+
+# pip is not used currently
+fetch.pip.files_to_pull = []
+
+fetch.before_pull_commands = [
+    [
+        "$root/repo${shell_ext}",
+        "usd",
+        "--generate-usd-deps",
+        "--usd-flavor", "${usd_flavor}",
+        "--usd-ver", "${usd_ver}",
+        "--python-ver", "${python_ver}",
+    ],
+]
+
+# pre_build.commands happens after project generation, this is too late
+fetch.after_pull_commands = [
+    ["$root/repo${shell_ext}", "version_header"],
+    ["$root/repo${shell_ext}", "feature_header", "--python", "${python_ver}"],
+]
+
+post_build.commands = [
+    [
+        "$root/repo${shell_ext}",
+        "--set-token", "usd_flavor:${usd_flavor}",
+        "--set-token", "usd_ver:${usd_ver}",
+        "--set-token", "python_ver:${python_ver}",
+        "--abi=${abi}",
+        "install_usdex",
+        "-c", "$config",
+        "--use-existing-build",
+        "--install-test",
+        "--staging-dir", "_build",
+        "--install-dir", "_build/$platform/$config",
+    ],
+    ["$root/repo${shell_ext}", "--set-token", "python_ver:${python_ver}", "stubgen", "-c", "$config"],
+]
+
+msbuild.link_host_toolchain = true
+msbuild.sln_file = "${conf:repo.name}.sln"
+msbuild.vs_version = ""  # choose the latest on the system
+
+fetch.generated_packman_file = "$root/_build/$platform/$config/dev/deps/all-deps.packman.xml"
+fetch.strip_deps = ["msvc", "winsdk", "linbuild"]  # internal-only deps
+
+[[repo_build.argument]]
+name = "usd_flavor"
+help = "Set the USD flavor to build against"
+extra_premake_args = ["--usd-flavor=${usd_flavor}"]
+
+[[repo_build.argument]]
+name = "usd_version"
+help = "Set the USD version to build against"
+extra_premake_args = ["--usd-ver=${usd_ver}"]
+
+[[repo_build.argument]]
+name = "python_ver"
+help = "Set the python version to build against"
+extra_premake_args = ["--python-ver=${python_ver}"]
+
+# Setup IntelliSense in VSCode
+[repo_build.vscode]
+settings_template_file = "$root/tools/vscode/settings.template.json"
+write_python_paths_in_settings_json = true
+generate_python_env_file = false
+generate_python_setup_shell_script = false
+# note: remove this when repo_build supports the generic `repo.python_executable` settings
+python = "$root/_build/target-deps/python/python${exe_ext}"
+python_env.PATH."++" = [
+    "$root/_build/$platform/$config/lib",
+]
+python_env.PYTHONPATH."++" = [
+    "$root/_build/$platform/$config/python",
+    "$root/_repo/deps/repo_man",
+    "$root/_repo/deps/repo_test",
+    "$root/_repo/deps/repo_ci",
+]
+
+[repo_stubgen]
+enabled = true
+stubgen_exclude = [
+    "$root/_build/$platform/$config/python/pxr/UsdMtlx",  # fails on some flavors (eg houdini)
+]
+
+[repo_test]
+default_config = "release"
+default_suite = "all"
+test_root = "$root/_build/$platform/$config"
+catch2.junit_output = true
+aggregated_log_file = "$root/_build/tests/test_results.xml"
+archive_pattern = "$root/_build/packages/usd-exchange_${usd_flavor}_${usd_ver}_py_${python_ver}*${platform_target_abi}.$config.7z"
+archive_post_unpack_cmds = [
+    [
+        "$root/repo${shell_ext}",
+        "--set-token", "usd_flavor:${usd_flavor}",
+        "--set-token", "usd_ver:${usd_ver}",
+        "--set-token", "python_ver:${python_ver}",
+        "--abi=${abi}",
+        "install_usdex",
+        "-c", "$config",
+        "--use-existing-build",
+        "--install-test",
+        "--staging-dir", "_build",
+        "--install-dir", "${test_root}",
+    ],
+]
+library_paths = [
+    "${test_root}/lib",
+    # required because the CI runners don't necessarily match the python flavor requested
+    "$root/_build/target-deps/python/lib",  # for linux
+    "$root/_build/target-deps/python",  # for windows
+]
+python_paths = [
+    "${test_root}/python",
+]
+env_vars = [
+    [ "USD_FLAVOR", "${usd_flavor}" ],  # We pass the USD flavor token to environment so it can be queried in tests.
+]
+
+# note: move this to `repo.python_executable` when all tools support it
+[repo_test.python_executable]
+packman_file_path = "deps/target-deps.packman.xml"
+packman_package_name = "python"
+python_executable_path = "python${exe_ext}"
+
+[repo_test.suites.main]
+kind = "unittest"
+log_file = "${test_root}/tests/usdex.${bucket_name}.results.xml"
+discover_path = "$root/source/${bucket_name}/tests/unittest"
+verbosity = 1
+
+[[repo_test.suites.main.bucket]]
+name = "core"
+
+[[repo_test.suites.main.bucket]]
+name = "rtx"
+
+[repo_test.suites.cpp]
+kind = "catch2"
+tests_per_process = 0
+executables = [
+	"$root/_build/$platform/$config/bin/test_usdex_${bucket_name}",
+]
+
+[[repo_test.suites.cpp.bucket]]
+name = "core"
+
+[[repo_test.suites.cpp.bucket]]
+name = "rtx"
+executables = []  # no cpp tests currently
+
+[repo_format]
+cpp.files.exclude = [
+    "include/usdex/pybind/BindingUtils.h",
+    "_*/**",
+]
+python.files.exclude."++" = [
+    "tools/repoman/pybind11_stubgen.py",
+    "_*/**",
+]
+python.line_length = 150
+python.maintain_legal_blurbs = true
+python.python_version = "py310"
+
+[repo_install_usdex]
+enabled = true
+usd_flavor = "${usd_flavor}"
+usd_ver = "${usd_ver}"
+python_ver = "${python_ver}"
+
+[repo_docs]
+enabled = true
+project = "${conf:repo.name}"
+name = "OpenUSD Exchange SDK"
+copyright_start = 2022
+config = "release"
+enable_dark_theme_switcher = true
+sphinx_conf_py_extra = """
+autodoc_member_order = 'bysource'
+extensions += ["autodocsumm"] # enables :autosummary: flag in automodule directives
+"""
+sphinx_exclude_patterns = [
+    "CHANGELOG.md",
+    "CITATION.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "LICENSE.md",
+    "SECURITY.md",
+    "_build",
+    "_install",
+    ".gitlab",
+    ".github",
+    ".cache",
+    "usd-exchange-ci",  # exists in CI
+]
+use_fast_doxygen_conversion = true
+only_preprocessor_enabled = true
+api_root_page = {docname = "api", title = "OpenUSD Exchange C++ API", toc_docnames = "*"}
+doxygen_input = [
+    "include/usdex/core",
+    "include/usdex/rtx",
+    "include/usdex/test",
+]
+doxygen_predefined = [
+    "__cplusplus",
+    "USDEX_API",
+    "USDEX_RTX_API",
+    "USDEX_IMPORT",
+    "USDEX_WITH_PYTHON",
+]
+api_title = "OpenUSD Exchange C++ API"
+api_output_directory = "api"
+library_paths = [
+    "$root/_build/$platform/$config/lib",
+]
+python_paths = [
+    "$root/_build/$platform/$config/python",
+]
+# controls the runtime python executable
+# note: remove this when repo_docs supports the generic `repo.python_executable` settings
+python_path = "$root/_build/target-deps/python/python${exe_ext}"
+
+[repo_docs.editions.s3web]
+protocol = "s3"
+bucket_name = "omniverse-docs"
+bucket_dir = "${project}/${version}"
+
+[repo_package]
+
+[repo_package.packages.usdex]
+omniverse_flow_version_scheme = true
+archive_name = "usd-exchange_${usd_flavor}_${usd_ver}_py_${python_ver}"
+warn_if_not_exist = true
+package_per_config = true
+remove_pycache = true
+files = [
+    ["_build/$platform/$config/include", "include"],
+    ["_build/$platform/$config/lib/${lib_prefix}usdex_*", "lib"],
+    ["_build/$platform/$config/python/usdex", "python/usdex"],
+    ["_build/$platform/$config/dev", "dev"],
+    ["_build/PACKAGE-LICENSES/**", "PACKAGE-LICENSES"],
+    ["PACKAGE-DEPS.yaml", "PACKAGE-DEPS.yaml"],
+]
+files_exclude = [
+    ["**.pdb"],
+    ["**.exp"],
+    ["**.sym"],
+]
+
+[repo_package.packages."platform:linux-x86_64".docs]
+omniverse_flow_version_scheme_2 = true
+files = [
+    ["_build/docs"]
+]
+warn_if_not_exist = true
+
+[repo_codesign]
+enabled = true
+folder_input = "${root}/_build/unsignedpackages"
+folder_output = "${root}/_build/signedpackages"
+
+[repo_publish]
+enabled = true
+fail_if_nothing_found = true
+fail_if_exist = false  # allow re-runs of failed publish CI jobs to account for infrastructure issues
+packages = ["usd-exchange*"]
+
+[repo_verify_deps]
+enabled = true
+
+[repo_ci.jobs]
+format.script = "$root/tools/ci/format.py"
+build.script = "$root/tools/ci/build.py"
+test.script = "$root/tools/ci/test.py"
+verify_deps.script = "$root/tools/ci/verify_deps.py"
+# the publishing scripts only exist during CI
+publish_packages.script = "$root/usd-exchange-ci/scripts/publish_packages.py"
+publish_docs.script = "$root/usd-exchange-ci/scripts/publish_docs.py"

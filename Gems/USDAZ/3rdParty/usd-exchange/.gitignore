@@ -1,0 +1,33 @@
+﻿# all folders starting with _ are local
+_*/
+
+Makefile
+
+# byte-compiled python files
+*.py[cod]
+
+# patch files
+*.diff
+*.patch
+
+# local user configs
+*.packman.xml.user
+.gitconfig
+user.repo.toml
+
+# IDE settings
+.vs/**
+.vscode/*.*
+*.code-workspace
+
+# formatting
+.lastformat
+.lastverify
+
+# Generated Files
+PACKAGE-DEPS.yaml
+VERSION
+version.rc
+deps/usd-deps.packman.xml
+include/usdex/core/Feature.h
+include/usdex/core/Version.h
